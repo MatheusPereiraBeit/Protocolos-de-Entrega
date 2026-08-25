@@ -936,7 +936,7 @@ document.getElementById('form-novo').addEventListener('submit', async function(e
     protocolToSave = {
       id: (crypto.randomUUID ? crypto.randomUUID() : 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2)),
       status: 'pendente',
-      fornecedor, nf, dataEntrega, solicitacao, departamento, recebedor, cc, items,
+      fornecedor, nf, dataEntrega, solicitacao, departamento, recebedor, cc, observacoes, items,
       assinatura: null,
       criadoEm: new Date().toISOString(),
       entregueEm: null
@@ -1011,7 +1011,7 @@ function buildSummaryHtml(p, editableLink){
     <div class="detail-row"><span class="k">Departamento</span><span class="v">${escapeHtml(p.departamento)}</span></div>
     <div class="detail-row"><span class="k">Recebedor</span><span class="v">${escapeHtml(p.recebedor)}</span></div>
     <div class="detail-row"><span class="k">C.C.</span><span class="v">${escapeHtml(p.cc)}</span></div>
-    ${p.observacoes ? `<div class="detail-row"><span class="k">Observações</span><span class="v" style="white-space:pre-wrap;max-width:70%;">${escapeHtml(p.observacoes)}</span></div>` : }
+    ${p.observacoes ? `<div class="detail-row"><span class="k">Observações</span><span class="v" style="white-space:pre-wrap;max-width:70%;">${escapeHtml(p.observacoes)}</span></div>` : ''}
     <div class="detail-items">${itemsHtml}</div>
     ${editableLink ? `<div style="text-align:right;margin-top:10px;"><button type="button" class="clear-btn" onclick="editPending('${p.id}')">Editar dados</button></div>` : ''}
   `;
