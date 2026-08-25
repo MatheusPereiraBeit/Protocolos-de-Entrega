@@ -9,7 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root{
     --paper:#F3EFE4;
@@ -102,6 +102,8 @@
     outline:3px solid #E2A33B55;outline-offset:1px;border-color:var(--amber);
   }
   .hint{font-size:11.5px;color:var(--steel);margin-top:4px;}
+
+  .obs-textarea{width:100%;min-height:88px;padding:12px;border-radius:9px;border:1.5px solid var(--line);background:var(--white);font-size:14px;color:var(--ink);font-family:'Inter',sans-serif;resize:vertical;}
 
   .item-row{
     display:grid;grid-template-columns:1fr 84px 34px;gap:8px;align-items:start;margin-bottom:10px;
@@ -214,18 +216,6 @@
   }
   .fab:active{transform:scale(0.94);}
 
-  .batch-download{
-    margin:0 0 14px;padding:12px;background:var(--paper);border:1px solid var(--line);border-radius:11px;
-  }
-  .batch-download-title{font-family:'Archivo',sans-serif;font-weight:700;font-size:13px;margin-bottom:9px;}
-  .batch-download-row{display:grid;grid-template-columns:1fr;gap:8px;}
-  .batch-download input[type=date]{
-    width:100%;padding:10px 12px;border-radius:9px;border:1.5px solid var(--line);
-    background:var(--white);font-size:14px;color:var(--ink);font-family:'Inter',sans-serif;min-height:44px;
-  }
-  .batch-download button{width:100%;}
-  .batch-download-hint{font-size:11.5px;color:var(--steel);margin-top:7px;line-height:1.4;}
-
   .foot-note{text-align:center;color:var(--steel);font-size:11.5px;margin-top:16px;line-height:1.5;}
 
   .loading-wrap{text-align:center;padding:60px 10px;color:var(--steel);font-size:13.5px;}
@@ -243,6 +233,20 @@
   }
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
+
+  /* Batch PDF download */
+  .batch-download{
+    background:var(--paper);border:1px solid var(--line);border-radius:11px;padding:14px;margin-bottom:14px;position:relative;z-index:1;
+  }
+  .batch-download .batch-title{font-family:'Archivo',sans-serif;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+  .batch-download .batch-title .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);}
+  .batch-download .batch-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;}
+  .batch-download label{display:block;font-size:12.5px;font-weight:600;color:var(--steel);margin-bottom:5px;}
+  .batch-download input[type=date]{width:100%;padding:12px;border-radius:9px;border:1.5px solid var(--line);background:var(--white);font-size:15px;color:var(--ink);font-family:'Inter',sans-serif;min-height:46px;}
+  .batch-download .batch-btn{padding:12px 16px;border:none;border-radius:9px;background:var(--ink);color:var(--white);font-family:'Archivo',sans-serif;font-weight:700;font-size:14px;cursor:pointer;min-height:46px;white-space:nowrap;}
+  .batch-download .batch-btn:disabled{background:#B7BEC2;cursor:not-allowed;}
+  .batch-download .batch-hint{font-size:11.5px;color:var(--steel);margin-top:8px;line-height:1.4;}
+  @media(max-width:520px){.batch-download .batch-row{grid-template-columns:1fr}.batch-download .batch-btn{width:100%;}}
 
   /* Auth */
   .auth-screen{position:fixed;inset:0;background:radial-gradient(ellipse at top, #FAF7EE 0%, var(--paper) 55%, var(--paper-2) 100%);display:flex;align-items:center;justify-content:center;padding:20px;z-index:1000;}
@@ -318,12 +322,15 @@
       </div>
 
       <div id="batch-download" class="batch-download" hidden>
-        <div class="batch-download-title">Baixar todos os PDFs do dia</div>
-        <div class="batch-download-row">
-          <input type="date" id="batch-date">
-          <button type="button" class="submit-btn" id="batch-download-btn" onclick="downloadDailyPdfs()">Baixar PDFs do dia (.ZIP)</button>
+        <div class="batch-title"><span class="dot"></span>Baixar PDFs de um dia</div>
+        <div class="batch-row">
+          <div>
+            <label for="batch-date">Data dos recebimentos</label>
+            <input type="date" id="batch-date">
+          </div>
+          <button type="button" class="batch-btn" id="batch-download-btn" onclick="downloadDayPDFs()">Baixar ZIP</button>
         </div>
-        <div class="batch-download-hint" id="batch-download-hint">Selecione a data da entrega. Os PDFs serão reunidos em um único arquivo ZIP.</div>
+        <div class="batch-hint">Serão incluídos todos os protocolos marcados como entregues nessa data.</div>
       </div>
 
       <div id="loading" class="loading-wrap"><div class="spin"></div>Carregando protocolos…</div>
@@ -425,6 +432,13 @@
           <div class="hint">A assinatura é feita depois, na hora da entrega, direto no protocolo pendente.</div>
         </div>
 
+        <div class="section">
+          <div class="section-label"><span class="dot"></span>Observações <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--steel);font-size:11px;">(opcional)</span></div>
+          <div class="field">
+            <textarea id="observacoes" class="obs-textarea" placeholder="Ex.: Entrega recebida com uma caixa avariada, material deixado na portaria, etc."></textarea>
+          </div>
+        </div>
+
         <div class="error-banner" id="form-error"></div>
         <button type="submit" class="submit-btn" id="formSubmitBtn" style="width:100%;">Salvar como pendente</button>
       </form>
@@ -519,6 +533,17 @@ let activeTab = 'pendentes';
 let currentId = null;
 let currentSession = null;
 
+function initBatchDate(){
+  const el = document.getElementById('batch-date');
+  if(el && !el.value){
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth()+1).padStart(2,'0');
+    const dd = String(now.getDate()).padStart(2,'0');
+    el.value = `${yyyy}-${mm}-${dd}`;
+  }
+}
+
 function dbToProtocol(row){
   return {
     id: row.id,
@@ -530,6 +555,7 @@ function dbToProtocol(row){
     departamento: row.departamento || '',
     recebedor: row.recebedor || '',
     cc: row.cc || '',
+    observacoes: row.observacoes || '',
     items: Array.isArray(row.items) ? row.items : [],
     assinatura: row.assinatura || null,
     criadoEm: row.criado_em,
@@ -548,6 +574,7 @@ function protocolToDb(p){
     departamento: p.departamento,
     recebedor: p.recebedor,
     cc: p.cc,
+    observacoes: p.observacoes || '',
     items: p.items,
     assinatura: p.assinatura,
     criado_em: p.criadoEm,
@@ -657,9 +684,6 @@ sb.auth.onAuthStateChange((_event, session) => {
 
 initializeApp();
 
-const batchDateEl = document.getElementById('batch-date');
-if(batchDateEl) batchDateEl.value = formatDateInputLocal(new Date().toISOString());
-
 // Atualiza a lista periodicamente quando o usuário está na tela principal.
 setInterval(async () => {
   if(!currentSession || document.getElementById('view-list').hidden) return;
@@ -681,89 +705,17 @@ function switchTab(tab){
   activeTab = tab;
   document.getElementById('tab-pendentes').classList.toggle('active', tab === 'pendentes');
   document.getElementById('tab-entregues').classList.toggle('active', tab === 'entregues');
-  document.getElementById('batch-download').hidden = (tab !== 'entregues');
   renderList();
-}
-
-function formatDateInputLocal(iso){
-  if(!iso) return '';
-  const d = new Date(iso);
-  if(isNaN(d.getTime())) return '';
-  const pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-}
-
-function getDailyDelivered(dateInputValue){
-  if(!dateInputValue) return [];
-  return protocolos.filter(p => p.status === 'entregue' && formatDateInputLocal(p.entregueEm) === dateInputValue);
-}
-
-async function downloadDailyPdfs(){
-  const dateInput = document.getElementById('batch-date');
-  const btn = document.getElementById('batch-download-btn');
-  const hint = document.getElementById('batch-download-hint');
-  const dateValue = dateInput.value;
-  if(!dateValue){
-    showToast('Selecione uma data.');
-    return;
-  }
-
-  const daily = getDailyDelivered(dateValue);
-  if(daily.length === 0){
-    hint.textContent = 'Nenhum protocolo entregue encontrado nessa data.';
-    showToast('Nenhum protocolo encontrado para essa data.');
-    return;
-  }
-
-  if(typeof JSZip === 'undefined'){
-    showToast('Não foi possível carregar o compactador ZIP.');
-    return;
-  }
-
-  btn.disabled = true;
-  const originalText = btn.textContent;
-  btn.textContent = `Gerando ${daily.length} PDF${daily.length === 1 ? '' : 's'}…`;
-  hint.textContent = `Encontrados ${daily.length} protocolo${daily.length === 1 ? '' : 's'}. Preparando o arquivo ZIP…`;
-
-  try{
-    const zip = new JSZip();
-    const usedNames = new Map();
-
-    daily.forEach((p, index) => {
-      const result = gerarPDF(p, { download: false });
-      let filename = result.filename;
-      const base = filename.replace(/\.pdf$/i, '');
-      const count = (usedNames.get(base) || 0) + 1;
-      usedNames.set(base, count);
-      if(count > 1) filename = `${base}_${count}.pdf`;
-      zip.file(filename, result.blob);
-    });
-
-    const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-    const url = URL.createObjectURL(zipBlob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `protocolos-entrega_${dateValue}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-
-    hint.textContent = `${daily.length} protocolo${daily.length === 1 ? '' : 's'} incluído${daily.length === 1 ? '' : 's'} no ZIP.`;
-    showToast(`ZIP com ${daily.length} PDF${daily.length === 1 ? '' : 's'} baixado.`);
-  }catch(err){
-    console.error('Erro ao gerar ZIP:', err);
-    hint.textContent = 'Não foi possível gerar o ZIP. Tente novamente.';
-    showToast('Erro ao gerar os PDFs do dia.');
-  }finally{
-    btn.disabled = false;
-    btn.textContent = originalText;
-  }
 }
 
 function renderList(){
   const pendentes = protocolos.filter(p => p.status === 'pendente').sort((a,b) => new Date(a.criadoEm) - new Date(b.criadoEm));
   const entregues = protocolos.filter(p => p.status === 'entregue').sort((a,b) => new Date(b.entregueEm) - new Date(a.entregueEm));
+  const batchBox = document.getElementById('batch-download');
+  if(batchBox){
+    batchBox.hidden = activeTab !== 'entregues';
+    if(activeTab === 'entregues') initBatchDate();
+  }
   document.getElementById('count-pendentes').textContent = pendentes.length;
   document.getElementById('count-entregues').textContent = entregues.length;
 
@@ -850,8 +802,6 @@ function showView(id){
   });
   document.getElementById('fab').hidden = (id !== 'view-list');
   document.getElementById('foot-note').hidden = (id !== 'view-list');
-  const batch = document.getElementById('batch-download');
-  if(batch) batch.hidden = !(id === 'view-list' && activeTab === 'entregues');
 }
 
 /* ---------------- New / edit form ---------------- */
@@ -889,6 +839,7 @@ function editPending(id){
   p.items.forEach(i => addItemRow(i.produto, i.quantidade));
   document.getElementById('recebedor').value = p.recebedor;
   document.getElementById('cc').value = p.cc;
+  document.getElementById('observacoes').value = p.observacoes || '';
   document.getElementById('form-error').style.display = 'none';
   showView('view-form');
 }
@@ -951,6 +902,7 @@ document.getElementById('form-novo').addEventListener('submit', async function(e
   if(departamento === 'Outro') departamento = document.getElementById('departamentoOutro').value.trim();
   const recebedor = document.getElementById('recebedor').value.trim();
   const cc = document.getElementById('cc').value.trim();
+  const observacoes = document.getElementById('observacoes').value.trim();
 
   const rowsRaw = [...document.querySelectorAll('.item-row')].map(r => ({
     produto: r.querySelector('.prod').value.trim(),
@@ -979,7 +931,7 @@ document.getElementById('form-novo').addEventListener('submit', async function(e
   if(editingId){
     protocolToSave = protocolos.find(x => x.id === editingId);
     if(!protocolToSave){ btn.disabled = false; btn.textContent = 'Salvar como pendente'; return; }
-    Object.assign(protocolToSave, { fornecedor, nf, dataEntrega, solicitacao, departamento, recebedor, cc, items });
+    Object.assign(protocolToSave, { fornecedor, nf, dataEntrega, solicitacao, departamento, recebedor, cc, observacoes, items });
   }else{
     protocolToSave = {
       id: (crypto.randomUUID ? crypto.randomUUID() : 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2)),
@@ -1059,6 +1011,7 @@ function buildSummaryHtml(p, editableLink){
     <div class="detail-row"><span class="k">Departamento</span><span class="v">${escapeHtml(p.departamento)}</span></div>
     <div class="detail-row"><span class="k">Recebedor</span><span class="v">${escapeHtml(p.recebedor)}</span></div>
     <div class="detail-row"><span class="k">C.C.</span><span class="v">${escapeHtml(p.cc)}</span></div>
+    ${p.observacoes ? `<div class="detail-row"><span class="k">Observações</span><span class="v" style="white-space:pre-wrap;max-width:70%;">${escapeHtml(p.observacoes)}</span></div>` : }
     <div class="detail-items">${itemsHtml}</div>
     ${editableLink ? `<div style="text-align:right;margin-top:10px;"><button type="button" class="clear-btn" onclick="editPending('${p.id}')">Editar dados</button></div>` : ''}
   `;
@@ -1218,7 +1171,7 @@ function clearSig(){
 }
 
 /* ---------------- PDF generation ---------------- */
-function gerarPDF(entry, options = {}){
+function createPDF(entry){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -1291,6 +1244,16 @@ function gerarPDF(entry, options = {}){
   });
 
   y = doc.lastAutoTable.finalY + 14;
+  if (entry.observacoes) {
+    if (y > 250) { doc.addPage(); y = 20; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text('Observações', margin, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    const obsLines = doc.splitTextToSize(entry.observacoes, pageWidth - margin * 2);
+    doc.text(obsLines, margin, y);
+    y += obsLines.length * 4.5 + 8;
+  }
   if (y > 240) { doc.addPage(); y = 20; }
 
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
@@ -1308,11 +1271,83 @@ function gerarPDF(entry, options = {}){
   const criado = new Date(entry.entregueEm || entry.criadoEm);
   doc.text(`Gerado em ${criado.toLocaleDateString('pt-BR')} às ${criado.toLocaleTimeString('pt-BR')}`, margin, 287);
 
-  const filename = `protocolo-entrega_${slugify(entry.departamento)}_${slugify(entry.solicitacao)}.pdf`;
-  const blob = doc.output('blob');
-  if(options.download !== false) doc.save(filename);
-  return { blob, filename };
+  return doc;
 }
+
+function gerarPDF(entry){
+  const doc = createPDF(entry);
+  const filename = `protocolo-entrega_${slugify(entry.departamento)}_${slugify(entry.solicitacao)}.pdf`;
+  doc.save(filename);
+}
+
+async function downloadDayPDFs(){
+  const dateInput = document.getElementById('batch-date');
+  const btn = document.getElementById('batch-download-btn');
+  const selectedDate = dateInput ? dateInput.value : '';
+  if(!selectedDate){
+    showToast('Selecione uma data.');
+    return;
+  }
+
+  const entries = protocolos.filter(p => {
+    if(p.status !== 'entregue' || !p.entregueEm) return false;
+    const deliveredDate = new Date(p.entregueEm);
+    if(Number.isNaN(deliveredDate.getTime())) return false;
+    const yyyy = deliveredDate.getFullYear();
+    const mm = String(deliveredDate.getMonth()+1).padStart(2,'0');
+    const dd = String(deliveredDate.getDate()).padStart(2,'0');
+    return `${yyyy}-${mm}-${dd}` === selectedDate;
+  }).sort((a,b) => new Date(a.entregueEm) - new Date(b.entregueEm));
+
+  if(entries.length === 0){
+    showToast('Nenhum protocolo entregue nessa data.');
+    return;
+  }
+
+  if(!window.JSZip){
+    showToast('Não foi possível carregar o compactador ZIP.');
+    return;
+  }
+
+  const originalText = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Gerando ZIP…'; }
+
+  try{
+    const zip = new JSZip();
+    const usedNames = new Set();
+
+    for(const entry of entries){
+      const doc = createPDF(entry);
+      let base = `protocolo-entrega_${slugify(entry.departamento)}_${slugify(entry.solicitacao)}`;
+      let filename = `${base}.pdf`;
+      let n = 2;
+      while(usedNames.has(filename.toLowerCase())){
+        filename = `${base}_${n}.pdf`;
+        n++;
+      }
+      usedNames.add(filename.toLowerCase());
+      const blob = doc.output('blob');
+      zip.file(filename, blob);
+    }
+
+    const zipBlob = await zip.generateAsync({type:'blob', compression:'DEFLATE', compressionOptions:{level:6}});
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `protocolos-entrega_${selectedDate.split('-').reverse().join('-')}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    showToast(`${entries.length} PDF${entries.length === 1 ? '' : 's'} compactado${entries.length === 1 ? '' : 's'} em ZIP.`);
+  }catch(err){
+    console.error('Download em lote:', err);
+    showToast('Não foi possível gerar o ZIP.');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = originalText; }
+  }
+}
+
 </script>
 </body>
 </html>
