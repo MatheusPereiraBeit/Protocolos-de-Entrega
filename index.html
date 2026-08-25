@@ -325,12 +325,12 @@
         <div class="batch-title"><span class="dot"></span>Baixar PDFs de um dia</div>
         <div class="batch-row">
           <div>
-            <label for="batch-date">Data dos recebimentos</label>
+            <label for="batch-date">Data da baixa/entrega</label>
             <input type="date" id="batch-date">
           </div>
           <button type="button" class="batch-btn" id="batch-download-btn" onclick="downloadDayPDFs()">Baixar ZIP</button>
         </div>
-        <div class="batch-hint">Serão incluídos todos os protocolos marcados como entregues nessa data.</div>
+        <div class="batch-hint">Serão incluídos todos os protocolos que foram baixados/assinados nessa data.</div>
       </div>
 
       <div id="loading" class="loading-wrap"><div class="spin"></div>Carregando protocolos…</div>
@@ -349,7 +349,7 @@
 
       <form id="form-novo" novalidate>
         <div class="section">
-          <div class="section-label"><span class="dot"></span>Dados da entrega</div>
+          <div class="section-label"><span class="dot"></span>Dados do protocolo</div>
           <div class="field">
             <label for="fornecedor">Fornecedor</label>
             <input type="text" id="fornecedor" placeholder="Ex.: Ceci Ecommerce (Mercado Livre)">
@@ -360,8 +360,8 @@
               <input type="text" id="nf" inputmode="numeric" placeholder="0000">
             </div>
             <div class="field">
-              <label for="dataEntrega">Data</label>
-              <input type="date" id="dataEntrega">
+              <label for="dataEntrega">Data de criação do protocolo</label>
+              <input type="date" id="dataEntrega" readonly>
             </div>
           </div>
           <div class="field">
@@ -740,7 +740,7 @@ function renderList(){
             <div class="card-dept">${escapeHtml(p.departamento)}</div>
             <div class="card-sub">NF ${escapeHtml(p.nf)} · Sol. ${escapeHtml(p.solicitacao)} · ${itemsLabel}</div>
           </div>
-          <div class="card-date">${formatDateDisplay(p.dataEntrega)}</div>
+          <div class="card-date">${formatDateDisplay(creationDateFromProtocol(p))}</div>
         </div>
         <span class="status-chip pendente">Aguardando assinatura</span>
       </div>`;
@@ -822,7 +822,7 @@ function editPending(id){
   document.getElementById('form-title').textContent = 'Editar protocolo';
   document.getElementById('fornecedor').value = p.fornecedor;
   document.getElementById('nf').value = p.nf;
-  document.getElementById('dataEntrega').value = p.dataEntrega;
+  document.getElementById('dataEntrega').value = creationDateFromProtocol(p);
   document.getElementById('solicitacao').value = p.solicitacao;
   const deptSelect = document.getElementById('departamento');
   const knownOption = [...deptSelect.options].some(o => o.value === p.departamento);
@@ -850,7 +850,7 @@ function resetFormFields(){
   itemCount = 0;
   addItemRow();
   document.getElementById('dept-outro-wrap').hidden = true;
-  document.getElementById('dataEntrega').value = new Date().toISOString().slice(0,10);
+  document.getElementById('dataEntrega').value = creationDateFromProtocol({ criadoEm: new Date().toISOString() });
   document.getElementById('form-error').style.display = 'none';
 }
 
@@ -931,14 +931,16 @@ document.getElementById('form-novo').addEventListener('submit', async function(e
   if(editingId){
     protocolToSave = protocolos.find(x => x.id === editingId);
     if(!protocolToSave){ btn.disabled = false; btn.textContent = 'Salvar como pendente'; return; }
-    Object.assign(protocolToSave, { fornecedor, nf, dataEntrega, solicitacao, departamento, recebedor, cc, observacoes, items });
+    Object.assign(protocolToSave, { fornecedor, nf, dataEntrega: creationDateFromProtocol(protocolToSave), solicitacao, departamento, recebedor, cc, observacoes, items });
   }else{
+    const criadoEm = new Date().toISOString();
+    const dataCriacao = creationDateFromProtocol({ criadoEm });
     protocolToSave = {
       id: (crypto.randomUUID ? crypto.randomUUID() : 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2)),
       status: 'pendente',
-      fornecedor, nf, dataEntrega, solicitacao, departamento, recebedor, cc, observacoes, items,
+      fornecedor, nf, dataEntrega: dataCriacao, solicitacao, departamento, recebedor, cc, observacoes, items,
       assinatura: null,
-      criadoEm: new Date().toISOString(),
+      criadoEm,
       entregueEm: null
     };
     protocolos.push(protocolToSave);
@@ -1006,7 +1008,8 @@ function buildSummaryHtml(p, editableLink){
   return `
     <div class="detail-row"><span class="k">Fornecedor</span><span class="v">${escapeHtml(p.fornecedor)}</span></div>
     <div class="detail-row"><span class="k">NF</span><span class="v">${escapeHtml(p.nf)}</span></div>
-    <div class="detail-row"><span class="k">Data da entrega</span><span class="v">${formatDateDisplay(p.dataEntrega)}</span></div>
+    <div class="detail-row"><span class="k">Data de criação</span><span class="v">${formatDateDisplay(creationDateFromProtocol(p))}</span></div>
+    <div class="detail-row"><span class="k">Data da baixa/entrega</span><span class="v">${p.entregueEm ? formatDateShort(p.entregueEm) : '—'}</span></div>
     <div class="detail-row"><span class="k">Solicitação</span><span class="v">${escapeHtml(p.solicitacao)}</span></div>
     <div class="detail-row"><span class="k">Departamento</span><span class="v">${escapeHtml(p.departamento)}</span></div>
     <div class="detail-row"><span class="k">Recebedor</span><span class="v">${escapeHtml(p.recebedor)}</span></div>
@@ -1040,7 +1043,7 @@ async function confirmSign(){
   try{
     gerarPDF(p);
     await saveProtocol(p);
-    document.getElementById('stamp-date').textContent = formatDateDisplay(p.dataEntrega);
+    document.getElementById('stamp-date').textContent = formatDateShort(p.entregueEm);
     currentId = p.id;
     showView('view-success');
   }catch(err){
@@ -1073,7 +1076,7 @@ function openDelivered(id){
   const p = protocolos.find(x => x.id === id);
   if(!p) return;
   currentId = id;
-  document.getElementById('delivered-sub').textContent = `Entregue em ${formatDateShort(p.entregueEm)}`;
+  document.getElementById('delivered-sub').textContent = `Baixa em ${formatDateShort(p.entregueEm)}`;
   document.getElementById('delivered-summary').innerHTML = buildSummaryHtml(p, false) +
     (p.assinatura ? `<img class="sig-preview" src="${p.assinatura}" alt="Assinatura do recebedor">` : '');
   showView('view-delivered');
@@ -1110,6 +1113,18 @@ async function doDeleteDelivered(id){
 }
 
 /* ---------------- Date helpers ---------------- */
+function creationDateFromProtocol(p){
+  if(p && p.criadoEm){
+    const d = new Date(p.criadoEm);
+    if(!Number.isNaN(d.getTime())){
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth()+1).padStart(2,'0');
+      const dd = String(d.getDate()).padStart(2,'0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+  }
+  return p && p.dataEntrega ? p.dataEntrega : '';
+}
 function formatDateDisplay(iso){
   if(!iso) return '—';
   const [y,m,d] = iso.split('-');
@@ -1212,14 +1227,15 @@ function createPDF(entry){
   const halfW = (pageWidth - margin * 2) / 2;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
   doc.text('NF', margin, y);
-  doc.text('DATA DA ENTREGA', margin + halfW, y);
+  doc.text('DATA DE CRIAÇÃO', margin + halfW, y);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
   doc.text(entry.nf || '—', margin, y + 5);
-  doc.text(formatDateDisplay(entry.dataEntrega) || '—', margin + halfW, y + 5);
+  doc.text(formatDateDisplay(creationDateFromProtocol(entry)) || '—', margin + halfW, y + 5);
   y += 12;
 
   field('Solicitação', entry.solicitacao);
   field('Departamento', entry.departamento);
+  field('Data da baixa/entrega', entry.entregueEm ? formatDateShort(entry.entregueEm) : '—');
 
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
   doc.text('RECEBEDOR', margin, y);
