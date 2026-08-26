@@ -309,7 +309,7 @@
         <button class="gear-btn" onclick="openSettings()" aria-label="Configurações">⚙</button>
         <div class="eyebrow-row"><div class="eyebrow">Almoxarifado · Recebimento</div></div>
         <h1>Protocolos de Entrega<br>de Materiais</h1>
-        <div class="sub">Protocolos de Entrega para acompanhamento e Entrega ao Compras</div>
+        <div class="sub">Crie um protocolo na portaria e assine no tablet, na hora da entrega</div>
       </header>
 
       <div class="tabs">
@@ -421,15 +421,15 @@
           <div class="section-label"><span class="dot"></span>Recebedor previsto</div>
           <div class="grid2">
             <div class="field">
-              <label for="recebedor">Nome</label>
-              <input type="text" id="recebedor" placeholder="Nome de quem vai receber">
+              <label for="recebedor">Nome <span style="font-weight:500;color:var(--steel);font-size:11px;">(opcional)</span></label>
+              <input type="text" id="recebedor" placeholder="Nome de quem vai receber (opcional)">
             </div>
             <div class="field">
               <label for="cc">C.C.</label>
               <input type="text" id="cc" inputmode="numeric" placeholder="0000.000">
             </div>
           </div>
-          <div class="hint">A assinatura é feita depois, na hora da entrega, direto no protocolo pendente.</div>
+          <div class="hint">Se o nome não for informado agora, ele será obrigatório no momento da assinatura. O nome também poderá ser corrigido na hora da entrega.</div>
         </div>
 
         <div class="section">
@@ -457,6 +457,15 @@
       <div id="sign-summary" class="detail-block"></div>
 
       <div class="section" style="margin-top:0;border-top:none;padding-top:0;">
+        <div class="section-label"><span class="dot"></span>Recebedor</div>
+        <div class="field">
+          <label for="signRecebedor">Nome do recebedor <span style="font-weight:500;color:var(--steel);font-size:11px;">(obrigatório)</span></label>
+          <input type="text" id="signRecebedor" placeholder="Nome de quem está recebendo">
+          <div class="hint">Você pode alterar o nome aqui antes de assinar.</div>
+        </div>
+      </div>
+
+      <div class="section" style="margin-top:0;">
         <div class="section-label"><span class="dot"></span>Assinatura do recebedor</div>
         <div class="sig-wrap">
           <canvas id="sigCanvas"></canvas>
@@ -910,7 +919,7 @@ document.getElementById('form-novo').addEventListener('submit', async function(e
   }));
   const items = rowsRaw.filter(i => i.produto || i.quantidade);
 
-  if(!fornecedor || !nf || !dataEntrega || !solicitacao || !departamento || !recebedor || !cc){
+  if(!fornecedor || !nf || !dataEntrega || !solicitacao || !departamento || !cc){
     errBox.textContent = 'Preencha todos os campos obrigatórios antes de salvar.';
     errBox.style.display = 'block';
     errBox.scrollIntoView({behavior:'smooth', block:'center'});
@@ -971,6 +980,7 @@ function openSign(id){
   currentId = id;
   document.getElementById('sign-sub').textContent = `NF ${p.nf} · Sol. ${p.solicitacao}`;
   document.getElementById('sign-summary').innerHTML = buildSummaryHtml(p, true);
+  document.getElementById('signRecebedor').value = p.recebedor || '';
   document.getElementById('sign-error').style.display = 'none';
   clearSig();
   showView('view-sign');
@@ -1025,6 +1035,14 @@ async function confirmSign(){
   if(!p) return;
   const errBox = document.getElementById('sign-error');
   errBox.style.display = 'none';
+  const signRecebedor = document.getElementById('signRecebedor').value.trim();
+
+  if(!signRecebedor){
+    errBox.textContent = 'Informe o nome do recebedor antes de confirmar o recebimento.';
+    errBox.style.display = 'block';
+    document.getElementById('signRecebedor').focus();
+    return;
+  }
 
   if(!hasSig){
     errBox.textContent = 'A assinatura do recebedor é obrigatória.';
@@ -1036,6 +1054,7 @@ async function confirmSign(){
   btn.disabled = true;
   btn.textContent = 'Gerando PDF…';
 
+  p.recebedor = signRecebedor;
   p.assinatura = canvas.toDataURL('image/png');
   p.entregueEm = new Date().toISOString();
   p.status = 'entregue';
