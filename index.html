@@ -105,10 +105,11 @@
   .hint{font-size:11.5px;color:var(--steel);margin-top:4px;}
 
   .obs-textarea{width:100%;min-height:88px;padding:12px;border-radius:9px;border:1.5px solid var(--line);background:var(--white);font-size:14px;color:var(--ink);font-family:'Inter',sans-serif;resize:vertical;}
-
   .file-input{width:100%;padding:10px;border-radius:9px;border:1.5px solid var(--line);background:var(--white);font-size:13px;color:var(--ink);font-family:'Inter',sans-serif;}
   .nf-existing{font-size:11.5px;color:var(--stamp);margin-top:5px;}
   .nf-mode-note{font-size:11.5px;color:var(--steel);margin-top:5px;line-height:1.4;}
+
+
   .item-row{
     display:grid;grid-template-columns:1fr 84px 34px;gap:8px;align-items:start;margin-bottom:10px;
     background:var(--paper);border-radius:10px;padding:10px;border:1px solid var(--line);
@@ -479,7 +480,7 @@
         <div class="field">
           <label for="sign-recebedor">Nome do recebedor (obrigatório)</label>
           <input type="text" id="sign-recebedor" placeholder="Nome de quem está recebendo" autocomplete="name">
-          <div class="hint">Se o nome já estiver preenchido, você pode alterá-lo antes de assinar.</div>
+          <div class="hint">Se o nome já estiver preenchido, você pode alterá-lo antes de confirmar.</div>
         </div>
       </div>
 
@@ -838,9 +839,11 @@ function showView(id){
 /* ---------------- New / edit form ---------------- */
 let itemCount = 0;
 let editingId = null;
+let editingExistingNfPath = null;
 
 function openNewForm(){
   editingId = null;
+  editingExistingNfPath = null;
   document.getElementById('form-title').textContent = 'Novo protocolo';
   resetFormFields();
   showView('view-form');
@@ -856,9 +859,16 @@ function editPending(id){
   document.getElementById('dataEntrega').value = p.dataEntrega || new Date().toISOString().slice(0,10);
   document.getElementById('nfModo').value = p.nfModo || 'nao';
   document.getElementById('nfPdf').value = '';
-  toggleNfMode();
+  editingExistingNfPath = p.nfPdfPath || null;
   const nfExisting = document.getElementById('nf-existing');
-  if (p.nfPdfPath) { nfExisting.textContent = 'PDF da NF já arquivado. Se selecionar outro, ele substituirá o atual.'; nfExisting.hidden = false; } else { nfExisting.hidden = true; nfExisting.textContent = ''; }
+  if (editingExistingNfPath) {
+    nfExisting.textContent = '✓ PDF da NF já arquivado. Você NÃO precisa anexar novamente. Se quiser substituir, selecione outro PDF.';
+    nfExisting.hidden = false;
+  } else {
+    nfExisting.hidden = true;
+    nfExisting.textContent = '';
+  }
+  toggleNfMode();
   document.getElementById('solicitacao').value = p.solicitacao;
   const deptSelect = document.getElementById('departamento');
   const knownOption = [...deptSelect.options].some(o => o.value === p.departamento);
@@ -887,10 +897,12 @@ function resetFormFields(){
   addItemRow();
   document.getElementById('dept-outro-wrap').hidden = true;
   document.getElementById('dataEntrega').value = new Date().toISOString().slice(0,10);
-  if (document.getElementById('nfModo')) document.getElementById('nfModo').value = 'nao';
-  if (document.getElementById('nfPdf')) document.getElementById('nfPdf').value = '';
-  if (document.getElementById('nf-existing')) { document.getElementById('nf-existing').hidden = true; document.getElementById('nf-existing').textContent = ''; }
-  if (document.getElementById('nfModo')) toggleNfMode();
+  document.getElementById('nfModo').value = 'nao';
+  document.getElementById('nfPdf').value = '';
+  document.getElementById('nf-existing').hidden = true;
+  document.getElementById('nf-existing').textContent = '';
+  editingExistingNfPath = null;
+  toggleNfMode();
   document.getElementById('form-error').style.display = 'none';
 }
 
@@ -921,16 +933,18 @@ function escapeHtml(s){
   return (s||'').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function toggleNfMode(){
-  const mode = document.getElementById('nfModo')?.value || 'nao';
+  const mode = document.getElementById('nfModo').value || 'nao';
   const wrap = document.getElementById('nf-pdf-wrap');
+  const file = document.getElementById('nfPdf');
   const itemsSection = document.getElementById('items-list')?.closest('.section');
   const addBtn = document.querySelector('.add-btn');
   const many = mode === 'muitos_itens';
-  if(wrap) wrap.hidden = mode === 'nao';
-  if(itemsSection) itemsSection.hidden = many;
-  if(addBtn) addBtn.hidden = many;
+  wrap.hidden = mode === 'nao';
+  file.required = mode !== 'nao' && !document.getElementById('nf-existing')?.hidden;
+  if (itemsSection) itemsSection.hidden = many;
+  if (addBtn) addBtn.hidden = many;
   const note = document.getElementById('nf-pdf-note');
-  if(note) note.textContent = many ? 'Neste modo, não é necessário cadastrar os itens. Apenas o PDF da NF será arquivado e anexado ao comprovante.' : 'O PDF da NF será anexado ao comprovante de entrega.';
+  if (note) note.textContent = many ? 'Neste modo, não é necessário cadastrar os itens. Apenas o PDF da NF será arquivado e anexado ao comprovante.' : 'O PDF da NF será anexado ao comprovante de entrega.';
 }
 
 async function uploadNfPdf(protocolId, file){
@@ -938,15 +952,17 @@ async function uploadNfPdf(protocolId, file){
   if(file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) throw new Error('O arquivo da NF precisa ser um PDF.');
   if(file.size > 20 * 1024 * 1024) throw new Error('O PDF da NF deve ter no máximo 20 MB.');
   const path = `protocolos/${protocolId}/nf_${Date.now()}.pdf`;
-  const { error } = await sb.storage.from('nf-arquivadas').upload(path, file, {contentType:'application/pdf', upsert:false});
+  const { error } = await sb.storage.from('nf-arquivadas').upload(path, file, { contentType:'application/pdf', upsert:false });
   if(error) throw error;
   return path;
 }
+
 async function deleteNfPdf(path){
   if(!path) return;
   const { error } = await sb.storage.from('nf-arquivadas').remove([path]);
   if(error) console.warn('Não foi possível apagar NF antiga:', error);
 }
+
 async function downloadNfPdf(path){
   if(!path) return null;
   const { data, error } = await sb.storage.from('nf-arquivadas').download(path);
@@ -985,7 +1001,8 @@ document.getElementById('form-novo').addEventListener('submit', async function(e
     quantidade: r.querySelector('.qty').value.trim()
   }));
   const items = rowsRaw.filter(i => i.produto || i.quantidade);
-  if(nfModo !== 'nao' && !nfFile && !(editingId && protocolos.find(x => x.id === editingId)?.nfPdfPath)){
+  const existingNfPath = editingId ? (protocolos.find(x => x.id === editingId)?.nfPdfPath || editingExistingNfPath) : null;
+  if(nfModo !== 'nao' && !nfFile && !existingNfPath){
     errBox.textContent = 'Anexe o PDF da NF para esta opção.';
     errBox.style.display = 'block';
     errBox.scrollIntoView({behavior:'smooth', block:'center'});
@@ -1015,7 +1032,8 @@ document.getElementById('form-novo').addEventListener('submit', async function(e
   if(editingId){
     protocolToSave = protocolos.find(x => x.id === editingId);
     if(!protocolToSave){ btn.disabled = false; btn.textContent = 'Salvar como pendente'; return; }
-    oldNfPath = protocolToSave.nfPdfPath || null;
+    oldNfPath = protocolToSave.nfPdfPath || editingExistingNfPath || null;
+    if (oldNfPath && !protocolToSave.nfPdfPath) protocolToSave.nfPdfPath = oldNfPath;
     Object.assign(protocolToSave, { fornecedor, nf, dataEntrega, solicitacao, departamento, recebedor, cc, observacoes, items: nfModo === 'muitos_itens' ? [] : items, nfModo });
   }else{
     protocolToSave = {
@@ -1032,15 +1050,17 @@ document.getElementById('form-novo').addEventListener('submit', async function(e
     if(nfFile){
       uploadedNfPath = await uploadNfPdf(protocolToSave.id, nfFile);
       protocolToSave.nfPdfPath = uploadedNfPath;
-    }else if(nfModo === 'nao'){
+    } else if(nfModo === 'nao'){
       protocolToSave.nfPdfPath = null;
+    } else if(existingNfPath){
+      protocolToSave.nfPdfPath = existingNfPath;
     }
     await saveProtocol(protocolToSave);
     if(oldNfPath && uploadedNfPath && oldNfPath !== uploadedNfPath) await deleteNfPdf(oldNfPath);
   }catch(err){
     console.error(err);
-    if(uploadedNfPath) await deleteNfPdf(uploadedNfPath);
-    if(!editingId && protocolToSave) protocolos = protocolos.filter(x => x.id !== protocolToSave.id);
+    if(uploadedNfPath && (!editingId || oldNfPath !== uploadedNfPath)) await deleteNfPdf(uploadedNfPath);
+    if(!editingId) protocolos = protocolos.filter(x => x.id !== protocolToSave.id);
     errBox.textContent = 'Não foi possível salvar no banco de dados.';
     errBox.style.display = 'block';
     btn.disabled = false; btn.textContent = 'Salvar como pendente';
@@ -1147,8 +1167,8 @@ async function confirmSign(){
   p.status = 'entregue';
 
   try{
-    await gerarPDF(p);
     await saveProtocol(p);
+    await gerarPDF(p);
     document.getElementById('stamp-date').textContent = formatDateShort(p.entregueEm);
     currentId = p.id;
     showView('view-success');
@@ -1164,7 +1184,10 @@ async function confirmSign(){
   }
 }
 
-async function redownloadLast(){ const p=protocolos.find(x=>x.id===currentId); if(p){ try{await gerarPDF(p);}catch(e){console.error(e);showToast('Não foi possível gerar o PDF.');} } }
+async function redownloadLast(){
+  const p = protocolos.find(x => x.id === currentId);
+  if(p) { try{ await gerarPDF(p); }catch(e){ console.error(e); showToast('Não foi possível gerar o PDF.'); } }
+}
 function backToListFromSuccess(){
   currentId = null;
   activeTab = 'entregues';
@@ -1189,7 +1212,10 @@ function closeDelivered(){
   showView('view-list');
   renderList();
 }
-async function redownloadDelivered(){ const p=protocolos.find(x=>x.id===currentId); if(p){ try{await gerarPDF(p);}catch(e){console.error(e);showToast('Não foi possível gerar o PDF.');} } }
+async function redownloadDelivered(){
+  const p = protocolos.find(x => x.id === currentId);
+  if(p) { try{ await gerarPDF(p); }catch(e){ console.error(e); showToast('Não foi possível gerar o PDF.'); } }
+}
 function deleteDelivered(){
   if(!currentId) return;
   const idToDelete = currentId;
@@ -1231,12 +1257,18 @@ function slugify(s){
 const canvas = document.getElementById('sigCanvas');
 const ctx = canvas.getContext('2d');
 let drawing = false, hasSig = false, lastX, lastY, signatureSnapshot = null;
+
 function applySignatureSnapshot(dataUrl){
   if(!dataUrl) return;
   const img = new Image();
-  img.onload = () => { const rect = canvas.getBoundingClientRect(); if(rect.width) ctx.drawImage(img,0,0,rect.width,170); };
+  img.onload = () => {
+    const rect = canvas.getBoundingClientRect();
+    if(rect.width === 0) return;
+    ctx.drawImage(img, 0, 0, rect.width, 170);
+  };
   img.src = dataUrl;
 }
+
 function resizeCanvas(){
   const rect = canvas.getBoundingClientRect();
   if(rect.width === 0) return;
@@ -1244,17 +1276,49 @@ function resizeCanvas(){
   const ratio = window.devicePixelRatio || 1;
   canvas.width = Math.round(rect.width * ratio);
   canvas.height = Math.round(170 * ratio);
-  ctx.setTransform(ratio,0,0,ratio,0,0);
-  ctx.strokeStyle='#20303B'; ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.lineJoin='round';
-  if(preserved){ signatureSnapshot=preserved; applySignatureSnapshot(preserved); }
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.strokeStyle = '#20303B';
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  if(preserved){
+    signatureSnapshot = preserved;
+    applySignatureSnapshot(preserved);
+  }
 }
 window.addEventListener('resize', resizeCanvas);
-function getPos(e){ const rect=canvas.getBoundingClientRect(); const t=e.touches?e.touches[0]:e; return {x:t.clientX-rect.left,y:t.clientY-rect.top}; }
-function startDraw(e){ e.preventDefault(); drawing=true; hasSig=true; const p=getPos(e); lastX=p.x; lastY=p.y; }
-function draw(e){ if(!drawing) return; e.preventDefault(); const p=getPos(e); ctx.beginPath(); ctx.moveTo(lastX,lastY); ctx.lineTo(p.x,p.y); ctx.stroke(); lastX=p.x; lastY=p.y; }
-function endDraw(){ if(!drawing) return; drawing=false; if(hasSig) signatureSnapshot=canvas.toDataURL('image/png'); }
-canvas.addEventListener('mousedown',startDraw); canvas.addEventListener('mousemove',draw); window.addEventListener('mouseup',endDraw); canvas.addEventListener('touchstart',startDraw,{passive:false}); canvas.addEventListener('touchmove',draw,{passive:false}); canvas.addEventListener('touchend',endDraw);
-function clearSig(){ const rect=canvas.getBoundingClientRect(); ctx.clearRect(0,0,rect.width||canvas.width,170); hasSig=false; signatureSnapshot=null; }
+
+function getPos(e){
+  const rect = canvas.getBoundingClientRect();
+  const t = e.touches ? e.touches[0] : e;
+  return {x: t.clientX - rect.left, y: t.clientY - rect.top};
+}
+function startDraw(e){ e.preventDefault(); drawing = true; hasSig = true; const p = getPos(e); lastX = p.x; lastY = p.y; }
+function draw(e){
+  if(!drawing) return;
+  e.preventDefault();
+  const p = getPos(e);
+  ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.stroke();
+  lastX = p.x; lastY = p.y;
+}
+function endDraw(){
+  if(!drawing) return;
+  drawing = false;
+  if(hasSig) signatureSnapshot = canvas.toDataURL('image/png');
+}
+canvas.addEventListener('mousedown', startDraw);
+canvas.addEventListener('mousemove', draw);
+window.addEventListener('mouseup', endDraw);
+canvas.addEventListener('touchstart', startDraw, {passive:false});
+canvas.addEventListener('touchmove', draw, {passive:false});
+canvas.addEventListener('touchend', endDraw);
+
+function clearSig(){
+  const rect = canvas.getBoundingClientRect();
+  ctx.clearRect(0,0, rect.width || canvas.width, 170);
+  hasSig = false;
+  signatureSnapshot = null;
+}
 
 /* ---------------- PDF generation ---------------- */
 function createPDF(entry){
@@ -1340,13 +1404,19 @@ function createPDF(entry){
     doc.text(obsLines, margin, y);
     y += obsLines.length * 4.5 + 8;
   }
-  if(entry.nfModo === 'muitos_itens'){
-    if(y > 255){ doc.addPage(); y=20; }
-    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.text('Itens', margin, y);
-    doc.setFont('helvetica','normal'); doc.text('Acompanhado de NF com muitos itens. Consulte a NF anexada.', margin, y+5); y += 14;
-  } else if(entry.nfPdfPath){
-    if(y > 255){ doc.addPage(); y=20; }
-    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(100); doc.text('NF arquivada em PDF e anexada após esta página.', margin, y); doc.setTextColor(20); y += 8;
+  if (entry.nfModo === 'muitos_itens') {
+    if (y > 255) { doc.addPage(); y = 20; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+    doc.text('Itens', margin, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Acompanhado de NF com muitos itens. Consulte a NF anexada.', margin, y + 5);
+    y += 14;
+  } else if (entry.nfPdfPath) {
+    if (y > 255) { doc.addPage(); y = 20; }
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(100);
+    doc.text('NF arquivada em PDF e anexada após esta página.', margin, y);
+    doc.setTextColor(20);
+    y += 8;
   }
   if (y > 240) { doc.addPage(); y = 20; }
 
@@ -1369,20 +1439,33 @@ function createPDF(entry){
 }
 
 async function buildMergedPdfBlob(entry){
-  const protocolDoc=createPDF(entry); const protocolBytes=protocolDoc.output('arraybuffer');
-  if(!entry.nfPdfPath) return new Blob([protocolBytes],{type:'application/pdf'});
+  const protocolDoc = createPDF(entry);
+  const protocolBytes = protocolDoc.output('arraybuffer');
+  if(!entry.nfPdfPath) return new Blob([protocolBytes], {type:'application/pdf'});
   if(!window.PDFLib) throw new Error('Biblioteca de PDF não carregada.');
-  const nfBlob=await downloadNfPdf(entry.nfPdfPath); const nfBytes=await nfBlob.arrayBuffer();
-  const merged=await PDFLib.PDFDocument.create();
-  const protocolPdf=await PDFLib.PDFDocument.load(protocolBytes); const nfPdf=await PDFLib.PDFDocument.load(nfBytes);
-  (await merged.copyPages(protocolPdf,protocolPdf.getPageIndices())).forEach(p=>merged.addPage(p));
-  (await merged.copyPages(nfPdf,nfPdf.getPageIndices())).forEach(p=>merged.addPage(p));
-  return new Blob([await merged.save()],{type:'application/pdf'});
+  const nfBlob = await downloadNfPdf(entry.nfPdfPath);
+  const nfBytes = await nfBlob.arrayBuffer();
+  const merged = await PDFLib.PDFDocument.create();
+  const protocolPdf = await PDFLib.PDFDocument.load(protocolBytes);
+  const nfPdf = await PDFLib.PDFDocument.load(nfBytes);
+  const protocolPages = await merged.copyPages(protocolPdf, protocolPdf.getPageIndices());
+  protocolPages.forEach(page => merged.addPage(page));
+  const nfPages = await merged.copyPages(nfPdf, nfPdf.getPageIndices());
+  nfPages.forEach(page => merged.addPage(page));
+  const bytes = await merged.save();
+  return new Blob([bytes], {type:'application/pdf'});
 }
+
 async function gerarPDF(entry){
-  const blob=await buildMergedPdfBlob(entry); const url=URL.createObjectURL(blob); const a=document.createElement('a');
-  a.href=url; a.download=`protocolo-entrega_${slugify(entry.departamento)}_${slugify(entry.solicitacao)}.pdf`; document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),1500);
+  const blob = await buildMergedPdfBlob(entry);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `protocolo-entrega_${slugify(entry.departamento)}_${slugify(entry.solicitacao)}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 async function downloadDayPDFs(){
@@ -1423,8 +1506,12 @@ async function downloadDayPDFs(){
 
     for(const entry of entries){
       let base = `protocolo-entrega_${slugify(entry.departamento)}_${slugify(entry.solicitacao)}`;
-      let filename = `${base}.pdf`; let n=2;
-      while(usedNames.has(filename.toLowerCase())){ filename=`${base}_${n}.pdf`; n++; }
+      let filename = `${base}.pdf`;
+      let n = 2;
+      while(usedNames.has(filename.toLowerCase())){
+        filename = `${base}_${n}.pdf`;
+        n++;
+      }
       usedNames.add(filename.toLowerCase());
       const blob = await buildMergedPdfBlob(entry);
       zip.file(filename, blob);
