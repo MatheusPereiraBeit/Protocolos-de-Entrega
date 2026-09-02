@@ -252,6 +252,18 @@
   .batch-download .batch-btn:disabled{background:#B7BEC2;cursor:not-allowed;}
   .batch-download .batch-hint{font-size:11.5px;color:var(--steel);margin-top:8px;line-height:1.4;}
   @media(max-width:520px){.batch-download .batch-row{grid-template-columns:1fr}.batch-download .batch-btn{width:100%;}}
+  .batch-signing{margin-bottom:14px;}
+  .batch-sign-row{grid-template-columns:1fr 1fr !important;}
+  .batch-download .batch-btn.secondary{background:var(--white);color:var(--ink);border:1.5px solid var(--line);}
+  .batch-download .batch-btn.secondary:hover{background:var(--paper-2);}
+  .pending-select{width:20px;height:20px;accent-color:var(--ink);cursor:pointer;flex-shrink:0;margin-top:2px;}
+  .pending-card-main{display:flex;align-items:flex-start;gap:10px;flex:1;min-width:0;}
+  .pending-card-main .card-dept-wrap{min-width:0;}
+  .batch-summary-list{margin:0 0 14px;padding:0;list-style:none;}
+  .batch-summary-item{padding:9px 0;border-bottom:1px dotted var(--line);font-size:13px;}
+  .batch-summary-item:last-child{border-bottom:none;}
+  .batch-summary-item strong{font-family:'Archivo',sans-serif;}
+  @media(max-width:520px){.batch-sign-row{grid-template-columns:1fr !important;}}
 
   /* Auth */
   .auth-screen{position:fixed;inset:0;background:radial-gradient(ellipse at top, #FAF7EE 0%, var(--paper) 55%, var(--paper-2) 100%);display:flex;align-items:center;justify-content:center;padding:20px;z-index:1000;}
@@ -336,6 +348,14 @@
           <button type="button" class="batch-btn" id="batch-download-btn" onclick="downloadDayPDFs()">Baixar ZIP</button>
         </div>
         <div class="batch-hint">Serão incluídos todos os protocolos marcados como entregues nessa data.</div>
+      </div>
+      <div id="batch-signing" class="batch-download batch-signing" hidden>
+        <div class="batch-title"><span class="dot"></span>Assinatura em lote</div>
+        <div class="batch-row batch-sign-row">
+          <button type="button" class="batch-btn secondary" id="select-all-pending-btn" onclick="toggleSelectAllPending()">Selecionar todos</button>
+          <button type="button" class="batch-btn" id="batch-sign-btn" onclick="openBatchSign()" disabled>Assinar selecionados (0)</button>
+        </div>
+        <div class="batch-hint">Selecione vários protocolos pendentes para que a mesma pessoa assine todos de uma vez.</div>
       </div>
 
       <div id="loading" class="loading-wrap"><div class="spin"></div>Carregando protocolos…</div>
@@ -560,6 +580,9 @@ let protocolos = [];
 let activeTab = 'pendentes';
 let currentId = null;
 let currentSession = null;
+let selectedPendingIds = new Set();
+let batchSigningIds = [];
+let lastBatchSignedIds = [];
 
 function initBatchDate(){
   const el = document.getElementById('batch-date');
@@ -744,51 +767,57 @@ function renderList(){
   const pendentes = protocolos.filter(p => p.status === 'pendente').sort((a,b) => new Date(a.criadoEm) - new Date(b.criadoEm));
   const entregues = protocolos.filter(p => p.status === 'entregue').sort((a,b) => new Date(b.entregueEm) - new Date(a.entregueEm));
   const batchBox = document.getElementById('batch-download');
-  if(batchBox){
-    batchBox.hidden = activeTab !== 'entregues';
-    if(activeTab === 'entregues') initBatchDate();
-  }
+  const signBatchBox = document.getElementById('batch-signing');
+  if(batchBox){ batchBox.hidden = activeTab !== 'entregues'; if(activeTab === 'entregues') initBatchDate(); }
+  if(signBatchBox){ signBatchBox.hidden = activeTab !== 'pendentes'; }
+  selectedPendingIds = new Set([...selectedPendingIds].filter(id => pendentes.some(p => p.id === id)));
+  updateBatchSelectionUI(pendentes);
   document.getElementById('count-pendentes').textContent = pendentes.length;
   document.getElementById('count-entregues').textContent = entregues.length;
-
   const container = document.getElementById('list-container');
   const items = activeTab === 'pendentes' ? pendentes : entregues;
-
   if(items.length === 0){
-    container.innerHTML = `<div class="list-empty">
-      <span class="big-icon">${activeTab === 'pendentes' ? '📋' : '📦'}</span>
-      ${activeTab === 'pendentes' ? 'Nenhum protocolo pendente.<br>Toque no + para criar um novo.' : 'Nenhum protocolo entregue ainda.'}
-    </div>`;
+    container.innerHTML = `<div class="list-empty"><span class="big-icon">${activeTab === 'pendentes' ? '📋' : '📦'}</span>${activeTab === 'pendentes' ? 'Nenhum protocolo pendente.<br>Toque no + para criar um novo.' : 'Nenhum protocolo entregue ainda.'}</div>`;
     return;
   }
-
   container.innerHTML = items.map(p => {
-    const itemsCount = p.items.length;
+    const itemsCount = Array.isArray(p.items) ? p.items.length : 0;
     const itemsLabel = itemsCount === 1 ? '1 produto' : `${itemsCount} produtos`;
     if(activeTab === 'pendentes'){
-      return `<div class="card" onclick="openSign('${p.id}')">
-        <div class="card-top">
-          <div>
-            <div class="card-dept">${escapeHtml(p.departamento)}</div>
-            <div class="card-sub">NF ${escapeHtml(p.nf)} · Sol. ${escapeHtml(p.solicitacao)} · ${itemsLabel}</div>
-          </div>
-          <div class="card-date">${formatDateDisplay(p.dataEntrega)}</div>
-        </div>
-        <span class="status-chip pendente">Aguardando assinatura</span>
-      </div>`;
-    }else{
-      return `<div class="card" onclick="openDelivered('${p.id}')">
-        <div class="card-top">
-          <div>
-            <div class="card-dept">${escapeHtml(p.departamento)}</div>
-            <div class="card-sub">NF ${escapeHtml(p.nf)} · Recebido por ${escapeHtml(p.recebedor)} · ${itemsLabel}</div>
-          </div>
-          <div class="card-date">${formatDateShort(p.entregueEm)}</div>
-        </div>
-        <span class="status-chip entregue">Entregue</span>
-      </div>`;
+      const checked = selectedPendingIds.has(p.id) ? 'checked' : '';
+      return `<div class="card" onclick="openSign('${p.id}')"><div class="card-top"><div class="pending-card-main"><input class="pending-select" type="checkbox" ${checked} aria-label="Selecionar protocolo NF ${escapeHtml(p.nf)}" onclick="event.stopPropagation(); togglePendingSelection('${p.id}', this.checked)"><div class="card-dept-wrap"><div class="card-dept">${escapeHtml(p.departamento)}</div><div class="card-sub">NF ${escapeHtml(p.nf)} · Sol. ${escapeHtml(p.solicitacao)} · ${itemsLabel}</div></div></div><div class="card-date">${formatDateDisplay(p.dataEntrega)}</div></div><span class="status-chip pendente">Aguardando assinatura</span></div>`;
     }
+    return `<div class="card" onclick="openDelivered('${p.id}')"><div class="card-top"><div><div class="card-dept">${escapeHtml(p.departamento)}</div><div class="card-sub">NF ${escapeHtml(p.nf)} · Recebido por ${escapeHtml(p.recebedor)} · ${itemsLabel}</div></div><div class="card-date">${formatDateShort(p.entregueEm)}</div></div><span class="status-chip entregue">Entregue</span></div>`;
   }).join('');
+}
+function updateBatchSelectionUI(pendentes){
+  const btn = document.getElementById('batch-sign-btn');
+  const selectAllBtn = document.getElementById('select-all-pending-btn');
+  const count = selectedPendingIds.size;
+  if(btn){ btn.disabled = count === 0; btn.textContent = `Assinar selecionados (${count})`; }
+  if(selectAllBtn){ const allSelected = pendentes.length > 0 && count === pendentes.length; selectAllBtn.textContent = allSelected ? 'Desmarcar todos' : 'Selecionar todos'; }
+}
+function togglePendingSelection(id, checked){
+  if(checked) selectedPendingIds.add(id); else selectedPendingIds.delete(id);
+  updateBatchSelectionUI(protocolos.filter(p => p.status === 'pendente'));
+}
+function toggleSelectAllPending(){
+  const pendentes = protocolos.filter(p => p.status === 'pendente');
+  const allSelected = pendentes.length > 0 && selectedPendingIds.size === pendentes.length;
+  if(allSelected) selectedPendingIds.clear(); else pendentes.forEach(p => selectedPendingIds.add(p.id));
+  renderList();
+}
+function openBatchSign(){
+  const ids = [...selectedPendingIds].filter(id => protocolos.some(p => p.id === id && p.status === 'pendente'));
+  if(!ids.length){ showToast('Selecione pelo menos um protocolo.'); return; }
+  batchSigningIds = ids; currentId = null;
+  const selected = ids.map(id => protocolos.find(p => p.id === id)).filter(Boolean);
+  const nonEmptyReceivers = selected.map(p => (p.recebedor || '').trim()).filter(Boolean);
+  const sameReceiver = nonEmptyReceivers.length === selected.length && new Set(nonEmptyReceivers.map(v => v.toLowerCase())).size === 1 ? nonEmptyReceivers[0] : '';
+  document.getElementById('sign-sub').textContent = `${selected.length} protocolos selecionados`;
+  document.getElementById('sign-summary').innerHTML = `<div class="batch-summary-list">${selected.map(p => `<div class="batch-summary-item"><strong>${escapeHtml(p.departamento)}</strong> · NF ${escapeHtml(p.nf)} · Sol. ${escapeHtml(p.solicitacao)}</div>`).join('')}</div><div class="hint">A mesma assinatura e o mesmo nome de recebedor serão aplicados a todos os protocolos selecionados.</div>`;
+  document.getElementById('sign-recebedor').value = sameReceiver;
+  document.getElementById('sign-error').style.display = 'none'; clearSig(); showView('view-sign'); setTimeout(resizeCanvas, 60);
 }
 
 /* ---------------- Modal (substitui prompt/confirm nativos, que não funcionam no artifact publicado) ---------------- */
@@ -1080,6 +1109,7 @@ document.getElementById('form-novo').addEventListener('submit', async function(e
 
 /* ---------------- Sign view ---------------- */
 function openSign(id){
+  batchSigningIds = [];
   const p = protocolos.find(x => x.id === id);
   if(!p) return;
   currentId = id;
@@ -1093,6 +1123,7 @@ function openSign(id){
 }
 function closeSign(){
   currentId = null;
+  batchSigningIds = [];
   showView('view-list');
   renderList();
 }
@@ -1138,11 +1169,8 @@ function buildSummaryHtml(p, editableLink){
 }
 
 async function confirmSign(){
-  const p = protocolos.find(x => x.id === currentId);
-  if(!p) return;
   const errBox = document.getElementById('sign-error');
   errBox.style.display = 'none';
-
   const signReceiver = document.getElementById('sign-recebedor').value.trim();
   if(!signReceiver){
     errBox.textContent = 'O nome do recebedor é obrigatório para confirmar o recebimento.';
@@ -1150,7 +1178,6 @@ async function confirmSign(){
     document.getElementById('sign-recebedor').focus();
     return;
   }
-
   if(!hasSig){
     errBox.textContent = 'A assinatura do recebedor é obrigatória.';
     errBox.style.display = 'block';
@@ -1159,25 +1186,99 @@ async function confirmSign(){
 
   const btn = document.getElementById('signBtn');
   btn.disabled = true;
-  btn.textContent = 'Gerando PDF…';
-
-  p.recebedor = signReceiver;
-  p.assinatura = canvas.toDataURL('image/png');
-  p.entregueEm = new Date().toISOString();
-  p.status = 'entregue';
+  const isBatch = batchSigningIds.length > 0;
+  const ids = isBatch ? [...batchSigningIds] : [currentId];
+  const selected = ids.map(id => protocolos.find(x => x.id === id)).filter(p => p && p.status === 'pendente');
+  const signature = canvas.toDataURL('image/png');
+  const originalStates = selected.map(p => ({ id:p.id, status:p.status, recebedor:p.recebedor, assinatura:p.assinatura, entregueEm:p.entregueEm }));
+  const now = new Date().toISOString();
 
   try{
-    await saveProtocol(p);
-    await gerarPDF(p);
-    document.getElementById('stamp-date').textContent = formatDateShort(p.entregueEm);
-    currentId = p.id;
-    showView('view-success');
+    if(!selected.length) throw new Error('Nenhum protocolo pendente encontrado.');
+
+    for(const p of selected){
+      p.recebedor = signReceiver;
+      p.assinatura = signature;
+      p.entregueEm = now;
+      p.status = 'entregue';
+    }
+
+    btn.textContent = isBatch ? 'Gerando PDFs…' : 'Gerando PDF…';
+
+    if(isBatch){
+      if(!window.JSZip) throw new Error('Biblioteca de ZIP não carregada.');
+      const zip = new JSZip();
+      const usedNames = new Set();
+      const pdfBlobs = [];
+
+      for(const p of selected){
+        let base = `protocolo-entrega_${slugify(p.departamento)}_${slugify(p.solicitacao)}`;
+        let filename = `${base}.pdf`, n = 2;
+        while(usedNames.has(filename.toLowerCase())){ filename = `${base}_${n}.pdf`; n++; }
+        usedNames.add(filename.toLowerCase());
+        pdfBlobs.push({ filename, blob: await buildMergedPdfBlob(p) });
+      }
+
+      btn.textContent = 'Salvando protocolos…';
+      const saved = [];
+      try{
+        for(const p of selected){
+          await saveProtocol(p);
+          saved.push(p.id);
+        }
+      }catch(saveErr){
+        for(const original of originalStates){
+          const p = protocolos.find(x => x.id === original.id);
+          if(!p) continue;
+          p.status = original.status;
+          p.recebedor = original.recebedor;
+          p.assinatura = original.assinatura;
+          p.entregueEm = original.entregueEm;
+          if(saved.includes(p.id)){
+            try{ await saveProtocol(p); }catch(rollbackErr){ console.error('Rollback:', rollbackErr); }
+          }
+        }
+        throw saveErr;
+      }
+
+      pdfBlobs.forEach(item => zip.file(item.filename, item.blob));
+      const zipBlob = await zip.generateAsync({type:'blob', compression:'DEFLATE', compressionOptions:{level:6}});
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `protocolos-assinados_${new Date(now).toLocaleDateString('pt-BR').replace(/\//g,'-')}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+
+      lastBatchSignedIds = selected.map(p => p.id);
+      selectedPendingIds.clear();
+      batchSigningIds = [];
+      currentId = selected[0].id;
+      document.getElementById('stamp-date').textContent = `${selected.length} protocolos`;
+      document.querySelector('#view-success h2').textContent = 'Protocolos entregues';
+      document.querySelector('#view-success p').textContent = `${selected.length} protocolos foram assinados e os PDFs foram baixados em um ZIP.`;
+      showView('view-success');
+    }else{
+      await saveProtocol(selected[0]);
+      await gerarPDF(selected[0]);
+      lastBatchSignedIds = [];
+      selectedPendingIds.delete(selected[0].id);
+      currentId = selected[0].id;
+      document.getElementById('stamp-date').textContent = formatDateShort(selected[0].entregueEm);
+      document.querySelector('#view-success h2').textContent = 'Protocolo entregue';
+      document.querySelector('#view-success p').textContent = 'O PDF foi baixado com a assinatura digital.';
+      showView('view-success');
+    }
   }catch(err){
-    errBox.textContent = 'Não foi possível gerar o PDF. Tente novamente.';
+    errBox.textContent = isBatch ? 'Não foi possível concluir a assinatura em lote.' : 'Não foi possível gerar o PDF. Tente novamente.';
     errBox.style.display = 'block';
     console.error(err);
-    p.status = 'pendente';
-    p.entregueEm = null;
+    for(const original of originalStates){
+      const p = protocolos.find(x => x.id === original.id);
+      if(p){ p.status=original.status; p.recebedor=original.recebedor; p.assinatura=original.assinatura; p.entregueEm=original.entregueEm; }
+    }
   }finally{
     btn.disabled = false;
     btn.textContent = 'Confirmar recebimento';
@@ -1185,9 +1286,30 @@ async function confirmSign(){
 }
 
 async function redownloadLast(){
-  const p = protocolos.find(x => x.id === currentId);
-  if(p) { try{ await gerarPDF(p); }catch(e){ console.error(e); showToast('Não foi possível gerar o PDF.'); } }
+  try{
+    if(lastBatchSignedIds.length > 0){
+      if(!window.JSZip) throw new Error('Biblioteca de ZIP não carregada.');
+      const selected = lastBatchSignedIds.map(id => protocolos.find(p => p.id === id)).filter(Boolean);
+      if(!selected.length) return;
+      const zip = new JSZip();
+      const usedNames = new Set();
+      for(const p of selected){
+        let base=`protocolo-entrega_${slugify(p.departamento)}_${slugify(p.solicitacao)}`, filename=`${base}.pdf`, n=2;
+        while(usedNames.has(filename.toLowerCase())){ filename=`${base}_${n}.pdf`; n++; }
+        usedNames.add(filename.toLowerCase());
+        zip.file(filename, await buildMergedPdfBlob(p));
+      }
+      const zipBlob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6}});
+      const url=URL.createObjectURL(zipBlob), a=document.createElement('a');
+      a.href=url; a.download=`protocolos-assinados_${new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')}.zip`;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1500);
+      return;
+    }
+    const p = protocolos.find(x => x.id === currentId);
+    if(p) await gerarPDF(p);
+  }catch(e){ console.error(e); showToast('Não foi possível gerar o PDF.'); }
 }
+
 function backToListFromSuccess(){
   currentId = null;
   activeTab = 'entregues';
