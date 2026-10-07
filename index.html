@@ -773,16 +773,28 @@ async function sincronizarPlanilha(){
   try{
     const dados = entregues.map(p => {
       let itemTexto = '';
+      let quantidadeTexto = '';
 
       if(Array.isArray(p.items) && p.items.length){
-        itemTexto = p.items
-          .map(item => String(item?.produto || '').trim())
-          .filter(Boolean)
+        const linhas = p.items
+          .map(item => ({
+            produto: String(item?.produto || '').trim(),
+            quantidade: String(item?.quantidade ?? '').trim()
+          }))
+          .filter(item => item.produto);
+
+        itemTexto = linhas
+          .map(item => item.produto)
+          .join('\n');
+
+        quantidadeTexto = linhas
+          .map(item => item.quantidade)
           .join('\n');
       }
 
       if(!itemTexto && p.nfModo === 'muitos_itens'){
         itemTexto = 'Acompanhado de NF com muitos itens';
+        quantidadeTexto = '';
       }
 
       return {
@@ -793,7 +805,8 @@ async function sincronizarPlanilha(){
         item: itemTexto,
         nf: p.nf || '',
         solicitacao: p.solicitacao || '',
-        recebedor: p.recebedor || ''
+        recebedor: p.recebedor || '',
+        quantidade: quantidadeTexto
       };
     }).filter(p => p.id);
 
@@ -801,11 +814,6 @@ async function sincronizarPlanilha(){
       throw new Error('Nenhum protocolo válido foi encontrado.');
     }
 
-    /*
-     * sendBeacon faz o POST sem exigir que o navegador leia a resposta
-     * do Google Apps Script. Isso evita o problema de CORS/redirecto
-     * que pode ocorrer com fetch() + no-cors.
-     */
     const blob = new Blob(
       [JSON.stringify(dados)],
       { type: 'text/plain;charset=UTF-8' }
@@ -822,11 +830,11 @@ async function sincronizarPlanilha(){
 
     if(status){
       status.textContent =
-        `✓ ${dados.length} protocolo(s) enviados para a planilha. O Google verificará os IDs já existentes.`;
+        `✓ ${dados.length} protocolo(s) enviados para a planilha. Quantidades incluídas.`;
     }
 
     showToast(
-      `${dados.length} protocolo(s) enviados para a planilha.`
+      `${dados.length} protocolo(s) enviados com as quantidades.`
     );
 
   }catch(err){
@@ -847,7 +855,6 @@ async function sincronizarPlanilha(){
     }
   }
 }
-
 async function saveProtocol(p){
   const data = await cloudflareFetch('/api/protocolos', {
     method: 'PUT',
