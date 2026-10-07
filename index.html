@@ -360,6 +360,34 @@
         </div>
         <div class="batch-hint">Serão incluídos todos os protocolos marcados como entregues nessa data.</div>
       </div>
+
+      <div id="sheet-sync" class="batch-download" hidden>
+        <div class="batch-title"><span class="dot"></span>Google Planilhas</div>
+        <div class="batch-row">
+          <div>
+            <div style="font-size:12.5px;font-weight:600;color:var(--steel);">
+              Histórico de entregas
+            </div>
+            <div class="batch-hint" style="margin-top:4px;">
+              Envia os protocolos entregues para a planilha.
+            </div>
+          </div>
+          <button
+            type="button"
+            class="batch-btn"
+            id="sheet-sync-btn"
+            onclick="sincronizarPlanilha()"
+          >
+            Gerar dados
+          </button>
+        </div>
+        <div
+          class="batch-hint"
+          id="sheet-sync-status"
+          style="margin-top:8px;"
+        ></div>
+      </div>
+
       <div id="batch-signing" class="batch-download batch-signing" hidden>
         <div class="batch-title"><span class="dot"></span>Assinatura em lote</div>
         <div class="batch-row batch-sign-row">
@@ -590,6 +618,9 @@ const sb = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 // O login continua no Supabase por enquanto; os dados e PDFs usam Cloudflare.
 const CLOUDFLARE_API = 'https://beitprotocolos-api.matheus-pereira-85e.workers.dev';
 
+// Google Apps Script que recebe os protocolos entregues e grava no Google Sheets.
+const GOOGLE_SHEETS_WEBAPP = 'https://script.google.com/a/macros/beityaacov.com.br/s/AKfycbwqIRUX2bT4Rm_3H0O2FYAJG7B0_Co8aaHs3WwzXjJLLwK6WFw7VDKk8Pqq9pLMVb3pmw/exec';
+
 let config = { retentionDays: 15 };
 let protocolos = [];
 let activeTab = 'pendentes';
@@ -704,6 +735,163 @@ async function saveConfig(){
 async function loadData(){
   const data = await cloudflareFetch('/api/protocolos');
   protocolos = Array.isArray(data) ? data : [];
+}
+
+/* ---------------- Google Sheets ---------------- */
+
+/**
+ * Envia os protocolos ENTREGUES atuais para o Google Apps Script.
+ *
+ * Cada protocolo ocupa uma única linha na planilha.
+ * Os vários itens ficam na mesma célula, separados por
+ * quebra de linha (\n).
+ *
+ * A planilha é responsável por verificar o ID e não duplicar
+ * protocolos já enviados anteriormente.
+ */
+async function sincronizarPlanilha(){
+
+  const btn = document.getElementById('sheet-sync-btn');
+  const status = document.getElementById('sheet-sync-status');
+
+  const entregues = protocolos
+    .filter(p => p.status === 'entregue');
+
+  if(entregues.length === 0){
+    showToast('Nenhum protocolo entregue para enviar.');
+    if(status) status.textContent = 'Nenhum protocolo entregue para sincronizar.';
+    return;
+  }
+
+  if(btn){
+    btn.disabled = true;
+    btn.textContent = 'Enviando…';
+  }
+
+  if(status){
+    status.textContent = `Preparando ${entregues.length} protocolo(s)…`;
+  }
+
+  try{
+
+    const dados = entregues
+      .map(p => {
+
+        let itemTexto = '';
+
+        /*
+         * Cada protocolo continua sendo UMA linha.
+         * Os produtos ficam dentro de uma única célula.
+         */
+        if(Array.isArray(p.items) && p.items.length){
+
+          itemTexto = p.items
+            .map(item => {
+
+              const produto = String(item?.produto || '').trim();
+              const quantidade = String(item?.quantidade || '').trim();
+
+              if(!produto) return '';
+
+              /*
+               * Mantém o nome do produto e a quantidade.
+               * O \n cria o equivalente ao Alt+Enter na célula.
+               */
+              if(quantidade){
+                return `${produto} — Qtd: ${quantidade}`;
+              }
+
+              return produto;
+
+            })
+            .filter(Boolean)
+            .join('\n');
+        }
+
+        /*
+         * No modo "muitos_itens", o formulário não cadastra
+         * produtos individualmente porque a NF contém a lista.
+         */
+        if(!itemTexto && p.nfModo === 'muitos_itens'){
+          itemTexto = 'Acompanhado de NF com muitos itens';
+        }
+
+        return {
+          id: String(p.id || '').trim(),
+          data: p.dataEntrega || '',
+          centro_custo: p.departamento || '',
+          fornecedor: p.fornecedor || '',
+          item: itemTexto,
+          nf: p.nf || '',
+          solicitacao: p.solicitacao || '',
+          recebedor: p.recebedor || ''
+        };
+
+      })
+      .filter(p => p.id);
+
+
+    if(!dados.length){
+      throw new Error('Nenhum protocolo válido foi encontrado.');
+    }
+
+
+    /*
+     * O Apps Script é um domínio externo.
+     * Com no-cors, o navegador permite o envio do POST,
+     * mas não permite que o frontend leia a resposta.
+     *
+     * O Apps Script continua fazendo a validação de IDs
+     * e a gravação na planilha.
+     */
+    await fetch(
+      GOOGLE_SHEETS_WEBAPP,
+      {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'text/plain;charset=UTF-8'
+        },
+        body: JSON.stringify(dados)
+      }
+    );
+
+
+    if(status){
+      status.textContent =
+        `✓ ${dados.length} protocolo(s) enviado(s) para a planilha.`;
+    }
+
+    showToast(
+      `${dados.length} protocolo(s) enviados para a planilha.`
+    );
+
+
+  }catch(error){
+
+    console.error(
+      'Erro ao sincronizar com Google Sheets:',
+      error
+    );
+
+    if(status){
+      status.textContent =
+        'Não foi possível enviar os dados para a planilha.';
+    }
+
+    showToast(
+      'Não foi possível enviar os dados para a planilha.'
+    );
+
+
+  }finally{
+
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = 'Gerar dados';
+    }
+
+  }
 }
 
 async function saveProtocol(p){
@@ -826,9 +1014,21 @@ function renderList(){
   const pendentes = protocolos.filter(p => p.status === 'pendente').sort((a,b) => new Date(a.criadoEm) - new Date(b.criadoEm));
   const entregues = protocolos.filter(p => p.status === 'entregue').sort((a,b) => new Date(b.entregueEm) - new Date(a.entregueEm));
   const batchBox = document.getElementById('batch-download');
+  const sheetSyncBox = document.getElementById('sheet-sync');
   const signBatchBox = document.getElementById('batch-signing');
-  if(batchBox){ batchBox.hidden = activeTab !== 'entregues'; if(activeTab === 'entregues') initBatchDate(); }
-  if(signBatchBox){ signBatchBox.hidden = activeTab !== 'pendentes'; }
+
+  if(batchBox){
+    batchBox.hidden = activeTab !== 'entregues';
+    if(activeTab === 'entregues') initBatchDate();
+  }
+
+  if(sheetSyncBox){
+    sheetSyncBox.hidden = activeTab !== 'entregues';
+  }
+
+  if(signBatchBox){
+    signBatchBox.hidden = activeTab !== 'pendentes';
+  }
   selectedPendingIds = new Set([...selectedPendingIds].filter(id => pendentes.some(p => p.id === id)));
   updateBatchSelectionUI(pendentes);
   document.getElementById('count-pendentes').textContent = pendentes.length;
