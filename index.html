@@ -619,7 +619,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 const CLOUDFLARE_API = 'https://beitprotocolos-api.matheus-pereira-85e.workers.dev';
 
 // Google Apps Script que recebe os protocolos entregues e grava no Google Sheets.
-const GOOGLE_SHEETS_WEBAPP = 'https://script.google.com/a/macros/beityaacov.com.br/s/AKfycbwqIRUX2bT4Rm_3H0O2FYAJG7B0_Co8aaHs3WwzXjJLLwK6WFw7VDKk8Pqq9pLMVb3pmw/exec';
+const GOOGLE_SHEETS_WEBAPP = 'https://script.google.com/macros/s/AKfycbwqIRUX2bT4Rm_3H0O2FYAJG7B0_Co8aaHs3WwzXjJLLwK6WFw7VDKk8Pqq9pLMVb3pmw/exec';
 
 let config = { retentionDays: 15 };
 let protocolos = [];
@@ -750,16 +750,14 @@ async function loadData(){
  * protocolos já enviados anteriormente.
  */
 async function sincronizarPlanilha(){
-
   const btn = document.getElementById('sheet-sync-btn');
   const status = document.getElementById('sheet-sync-status');
 
-  const entregues = protocolos
-    .filter(p => p.status === 'entregue');
+  const entregues = protocolos.filter(p => p.status === 'entregue');
 
-  if(entregues.length === 0){
+  if(!entregues.length){
     showToast('Nenhum protocolo entregue para enviar.');
-    if(status) status.textContent = 'Nenhum protocolo entregue para sincronizar.';
+    if(status) status.textContent = 'Nenhum protocolo entregue encontrado.';
     return;
   }
 
@@ -773,124 +771,80 @@ async function sincronizarPlanilha(){
   }
 
   try{
+    const dados = entregues.map(p => {
+      let itemTexto = '';
 
-    const dados = entregues
-      .map(p => {
+      if(Array.isArray(p.items) && p.items.length){
+        itemTexto = p.items
+          .map(item => String(item?.produto || '').trim())
+          .filter(Boolean)
+          .join('\n');
+      }
 
-        let itemTexto = '';
+      if(!itemTexto && p.nfModo === 'muitos_itens'){
+        itemTexto = 'Acompanhado de NF com muitos itens';
+      }
 
-        /*
-         * Cada protocolo continua sendo UMA linha.
-         * Os produtos ficam dentro de uma única célula.
-         */
-        if(Array.isArray(p.items) && p.items.length){
-
-          itemTexto = p.items
-            .map(item => {
-
-              const produto = String(item?.produto || '').trim();
-              const quantidade = String(item?.quantidade || '').trim();
-
-              if(!produto) return '';
-
-              /*
-               * Mantém o nome do produto e a quantidade.
-               * O \n cria o equivalente ao Alt+Enter na célula.
-               */
-              if(quantidade){
-                return `${produto} — Qtd: ${quantidade}`;
-              }
-
-              return produto;
-
-            })
-            .filter(Boolean)
-            .join('\n');
-        }
-
-        /*
-         * No modo "muitos_itens", o formulário não cadastra
-         * produtos individualmente porque a NF contém a lista.
-         */
-        if(!itemTexto && p.nfModo === 'muitos_itens'){
-          itemTexto = 'Acompanhado de NF com muitos itens';
-        }
-
-        return {
-          id: String(p.id || '').trim(),
-          data: p.dataEntrega || '',
-          centro_custo: p.departamento || '',
-          fornecedor: p.fornecedor || '',
-          item: itemTexto,
-          nf: p.nf || '',
-          solicitacao: p.solicitacao || '',
-          recebedor: p.recebedor || ''
-        };
-
-      })
-      .filter(p => p.id);
-
+      return {
+        id: String(p.id || '').trim(),
+        data: p.dataEntrega || '',
+        centro_custo: p.departamento || '',
+        fornecedor: p.fornecedor || '',
+        item: itemTexto,
+        nf: p.nf || '',
+        solicitacao: p.solicitacao || '',
+        recebedor: p.recebedor || ''
+      };
+    }).filter(p => p.id);
 
     if(!dados.length){
       throw new Error('Nenhum protocolo válido foi encontrado.');
     }
 
-
     /*
-     * O Apps Script é um domínio externo.
-     * Com no-cors, o navegador permite o envio do POST,
-     * mas não permite que o frontend leia a resposta.
-     *
-     * O Apps Script continua fazendo a validação de IDs
-     * e a gravação na planilha.
+     * sendBeacon faz o POST sem exigir que o navegador leia a resposta
+     * do Google Apps Script. Isso evita o problema de CORS/redirecto
+     * que pode ocorrer com fetch() + no-cors.
      */
-    await fetch(
-      GOOGLE_SHEETS_WEBAPP,
-      {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: {
-          'Content-Type': 'text/plain;charset=UTF-8'
-        },
-        body: JSON.stringify(dados)
-      }
+    const blob = new Blob(
+      [JSON.stringify(dados)],
+      { type: 'text/plain;charset=UTF-8' }
     );
 
+    const enviado = navigator.sendBeacon(
+      GOOGLE_SHEETS_WEBAPP,
+      blob
+    );
+
+    if(!enviado){
+      throw new Error('O navegador não conseguiu enviar os dados.');
+    }
 
     if(status){
       status.textContent =
-        `✓ ${dados.length} protocolo(s) enviado(s) para a planilha.`;
+        `✓ ${dados.length} protocolo(s) enviados para a planilha. O Google verificará os IDs já existentes.`;
     }
 
     showToast(
       `${dados.length} protocolo(s) enviados para a planilha.`
     );
 
-
-  }catch(error){
-
-    console.error(
-      'Erro ao sincronizar com Google Sheets:',
-      error
-    );
+  }catch(err){
+    console.error('Sincronização com Google Sheets:', err);
 
     if(status){
-      status.textContent =
-        'Não foi possível enviar os dados para a planilha.';
+      status.textContent = 'Não foi possível enviar os dados.';
     }
 
     showToast(
       'Não foi possível enviar os dados para a planilha.'
     );
 
-
   }finally{
-
     if(btn){
       btn.disabled = false;
       btn.textContent = 'Gerar dados';
     }
-
   }
 }
 
