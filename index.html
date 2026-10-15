@@ -1478,7 +1478,7 @@ async function confirmSign(){
       if(!window.JSZip) throw new Error('Biblioteca de ZIP não carregada.');
       const zip=new JSZip(), usedNames=new Set();
       for(const p of selected){
-        let base=`protocolo-entrega_${slugify(p.departamento)}_${slugify(p.solicitacao)}`, filename=`${base}.pdf`, n=2;
+        let base=`protocolo-entrega_${slugify(p.departamento)}_SC_${slugify(p.solicitacao)}`, filename=`${base}.pdf`, n=2;
         while(usedNames.has(filename.toLowerCase())){ filename=`${base}_${n}.pdf`; n++; }
         usedNames.add(filename.toLowerCase());
         zip.file(filename, await buildMergedPdfBlob(p));
@@ -1780,7 +1780,7 @@ async function gerarPDF(entry){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `protocolo-entrega_${slugify(entry.departamento)}_${slugify(entry.solicitacao)}.pdf`;
+  a.download = `protocolo-entrega_${slugify(entry.departamento)}_SC_${slugify(entry.solicitacao)}.pdf`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -1823,15 +1823,16 @@ async function downloadDayPDFs(){
     const zip = new JSZip();
     const usedNames = new Set();
 
-  for(const entry of entries){
-  let base = `protocolo-entrega_${slugify(entry.departamento)}_SC_${slugify(entry.solicitacao)}`;
-  let filename = `${base}.pdf`;
-  let n = 2;
+    for(const entry of entries){
+      let base = `protocolo-entrega_${slugify(entry.departamento)}_SC_${slugify(entry.solicitacao)}`;
+      let filename = `${base}.pdf`;
+      let n = 2;
 
-  while(usedNames.has(filename.toLowerCase())){
-    filename = `${base}_${n}.pdf`;
-    n++;
-  }
+      while(usedNames.has(filename.toLowerCase())){
+        filename = `${base}_${n}.pdf`;
+        n++;
+      }
+
       usedNames.add(filename.toLowerCase());
       const blob = await buildMergedPdfBlob(entry);
       zip.file(filename, blob);
