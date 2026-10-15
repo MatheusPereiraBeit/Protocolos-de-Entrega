@@ -1823,14 +1823,16 @@ async function downloadDayPDFs(){
     const zip = new JSZip();
     const usedNames = new Set();
 
-    for(const entry of entries){
-      let base = `protocolo-entrega_${slugify(entry.departamento)}_${slugify(entry.solicitacao)}`;
-      let filename = `${base}.pdf`;
-      let n = 2;
-      while(usedNames.has(filename.toLowerCase())){
-        filename = `${base}_${n}.pdf`;
-        n++;
-      }
+  for(const entry of entries){
+  let base = `protocolo-entrega_${slugify(entry.departamento)}_SC_${slugify(entry.solicitacao)}`;
+  let filename = `${base}.pdf`;
+  let n = 2;
+
+  while(usedNames.has(filename.toLowerCase())){
+    filename = `${base}_${n}.pdf`;
+    n++;
+  }
+}
       usedNames.add(filename.toLowerCase());
       const blob = await buildMergedPdfBlob(entry);
       zip.file(filename, blob);
